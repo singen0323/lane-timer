@@ -900,7 +900,14 @@ function initRecorderPeer() {
     conns[lane] = conn;
     updateLaneCard(lane, true);
 
-    conn.on('data', data => handleMeasurerData(lane, data));
+    conn.on('data', data => {
+      // PING応答（時刻補正用）
+      if (data.type === 'PING') {
+        conn.send({ type: 'PONG', t1: data.t1, t2: Date.now() });
+        return;
+      }
+      handleMeasurerData(lane, data);
+    });
     conn.on('close', () => {
       delete conns[lane];
       updateLaneCard(lane, false);
@@ -1170,10 +1177,12 @@ function connectToRecorder() {
   });
 
   recorderConn.on('open', () => {
-    setMeasConnStatus('connected', 'Lane ' + myLane + ' 接続済み');
+    setMeasConnStatus('connecting', '時刻を同期中...');
     document.getElementById('meas-lane-badge').textContent = 'LANE ' + myLane;
     document.getElementById('meas-waiting').textContent = 'スタート待機中...';
     toast('Lane ' + myLane + ' で接続しました');
+    // 接続直後にクロック同期開始
+    setTimeout(startClockSync, 100);
   });
 
   recorderConn.on('data', data => handleRecorderData(data));
@@ -1196,13 +1205,62 @@ function setMeasConnStatus(state, text) {
 }
 
 // ============================================================
+//  MEASURER — 時刻補正 (Ping/Pong NTP方式)
+// ============================================================
+let clockOffset = 0;      // 記録者との時刻差(ms)。補正後: Date.now() + clockOffset ≒ 記録者のDate.now()
+let pingCount = 0;
+const PING_TIMES = 5;     // 5回測定して中央値を使う
+let pingResults = [];
+
+function startClockSync() {
+  pingResults = [];
+  pingCount = 0;
+  sendPing();
+}
+
+function sendPing() {
+  if (!recorderConn || !recorderConn.open) return;
+  recorderConn.send({ type: 'PING', t1: Date.now() });
+}
+
+function handlePong(data) {
+  // data: { type:'PONG', t1, t2 }
+  // t1=計測者送信時刻, t2=記録者受信・返信時刻, t3=計測者受信時刻
+  const t3 = Date.now();
+  const rtt = t3 - data.t1;          // 往復時間
+  const offset = data.t2 - data.t1 - rtt / 2; // 時刻差の推定
+  pingResults.push(offset);
+
+  pingCount++;
+  if (pingCount < PING_TIMES) {
+    setTimeout(sendPing, 60);
+  } else {
+    // 中央値を採用（外れ値を除去）
+    pingResults.sort((a, b) => a - b);
+    clockOffset = pingResults[Math.floor(PING_TIMES / 2)];
+    console.log('Clock offset:', clockOffset, 'ms  (samples:', pingResults, ')');
+    setMeasConnStatus('connected', `Lane ${myLane} 同期完了 (補正:${clockOffset > 0 ? '+' : ''}${Math.round(clockOffset)}ms)`);
+  }
+}
+
+// 補正済み「今の時刻」
+function now() {
+  return Date.now() + clockOffset;
+}
+
+// ============================================================
 //  MEASURER — 受信ハンドラ
 // ============================================================
-let measStartAt = null; // サーバー基準時刻
+let measStartAt = null; // 記録者基準のスタート時刻
 
 function handleRecorderData(data) {
+  if (data.type === 'PONG') {
+    handlePong(data);
+    return;
+  }
+
   if (data.type === 'START') {
-    measStartAt = data.startAt;
+    measStartAt = data.startAt;  // 記録者のDate.now()基準
     measLapTimes = [];
     measStopped = false;
 
@@ -1231,8 +1289,9 @@ function startMeasTimer() {
   const disp = document.getElementById('meas-timer-display');
   function tick() {
     if (!timerRunning) return;
-    const elapsed = Date.now() - measStartAt;
-    disp.textContent = formatTime(elapsed);
+    // clockOffsetで補正した時刻でスタートからの経過を計算
+    const elapsed = now() - measStartAt;
+    disp.textContent = formatTime(elapsed < 0 ? 0 : elapsed);
     requestAnimationFrame(tick);
   }
   requestAnimationFrame(tick);
@@ -1243,7 +1302,7 @@ function startMeasTimer() {
 // ============================================================
 function measLap() {
   if (!timerRunning || measStopped) return;
-  const elapsed = Date.now() - measStartAt;
+  const elapsed = now() - measStartAt;
   const lapNum = measLapTimes.length + 1;
 
   measLapTimes.push({ type:'LAP', num: lapNum, elapsed });
@@ -1261,7 +1320,7 @@ function measStop() {
   if (!timerRunning || measStopped) return;
   measStopped = true;
   timerRunning = false;
-  const elapsed = Date.now() - measStartAt;
+  const elapsed = now() - measStartAt;
 
   const disp = document.getElementById('meas-timer-display');
   disp.classList.remove('running');
