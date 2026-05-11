@@ -1,0 +1,1402 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>レーン計時システム</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;600;700&family=Noto+Sans+JP:wght@400;500;700&display=swap');
+
+  :root {
+    --bg: #0a0e1a;
+    --surface: #111827;
+    --surface2: #1a2235;
+    --border: #1e3a5f;
+    --accent: #00d4ff;
+    --accent2: #0095b3;
+    --green: #00ff88;
+    --green2: #00cc6a;
+    --red: #ff3366;
+    --yellow: #ffcc00;
+    --text: #e8f4ff;
+    --text2: #7a9cc0;
+    --timer: #00d4ff;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: 'Noto Sans JP', sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  body::before {
+    content: '';
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background:
+      radial-gradient(ellipse at 20% 20%, rgba(0,212,255,0.06) 0%, transparent 50%),
+      radial-gradient(ellipse at 80% 80%, rgba(0,255,136,0.04) 0%, transparent 50%);
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  .screen { display: none; position: relative; z-index: 1; }
+  .screen.active { display: block; }
+
+  /* ── TOP PAGE ── */
+  #screen-top {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+    padding: 40px 20px;
+    text-align: center;
+  }
+  #screen-top.active { display: flex; }
+
+  .logo {
+    font-family: 'Rajdhani', sans-serif;
+    font-size: clamp(2rem, 8vw, 3.5rem);
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    color: var(--accent);
+    text-shadow: 0 0 30px rgba(0,212,255,0.5);
+    margin-bottom: 8px;
+  }
+
+  .logo-sub {
+    font-size: 0.85rem;
+    color: var(--text2);
+    letter-spacing: 0.2em;
+    margin-bottom: 60px;
+  }
+
+  .btn-group { display: flex; flex-direction: column; gap: 16px; width: 100%; max-width: 320px; }
+
+  .btn {
+    padding: 18px 32px;
+    border: none;
+    border-radius: 12px;
+    font-family: 'Noto Sans JP', sans-serif;
+    font-size: 1rem;
+    font-weight: 700;
+    cursor: pointer;
+    transition: all 0.2s;
+    letter-spacing: 0.05em;
+  }
+
+  .btn-primary {
+    background: linear-gradient(135deg, var(--accent), var(--accent2));
+    color: #000;
+    box-shadow: 0 0 20px rgba(0,212,255,0.3);
+  }
+  .btn-primary:hover { transform: translateY(-2px); box-shadow: 0 4px 30px rgba(0,212,255,0.5); }
+  .btn-primary:active { transform: translateY(0); }
+
+  .btn-secondary {
+    background: var(--surface2);
+    color: var(--text);
+    border: 1px solid var(--border);
+  }
+  .btn-secondary:hover { border-color: var(--accent); color: var(--accent); }
+
+  .btn-green {
+    background: linear-gradient(135deg, var(--green), var(--green2));
+    color: #000;
+    box-shadow: 0 0 20px rgba(0,255,136,0.3);
+  }
+  .btn-green:hover { transform: translateY(-2px); box-shadow: 0 4px 30px rgba(0,255,136,0.5); }
+  .btn-green:active { transform: translateY(0); }
+
+  .btn-red {
+    background: linear-gradient(135deg, #ff3366, #cc0044);
+    color: #fff;
+    box-shadow: 0 0 20px rgba(255,51,102,0.3);
+  }
+  .btn-red:hover { transform: translateY(-2px); }
+  .btn-red:active { transform: translateY(0); }
+
+  .btn-yellow {
+    background: linear-gradient(135deg, var(--yellow), #cc9900);
+    color: #000;
+  }
+  .btn-yellow:hover { transform: translateY(-2px); }
+
+  .btn-sm {
+    padding: 10px 20px;
+    font-size: 0.85rem;
+    border-radius: 8px;
+  }
+
+  /* ── RECORDER ROOM ── */
+  #screen-recorder {
+    padding: 0;
+    min-height: 100vh;
+  }
+  #screen-recorder.active { display: flex; flex-direction: column; }
+
+  .header {
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    padding: 16px 20px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    position: sticky;
+    top: 0;
+    z-index: 100;
+  }
+
+  .header-title {
+    font-family: 'Rajdhani', sans-serif;
+    font-size: 1.3rem;
+    font-weight: 700;
+    color: var(--accent);
+    letter-spacing: 0.08em;
+  }
+
+  .room-id-badge {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 6px 12px;
+    font-size: 0.75rem;
+    color: var(--text2);
+  }
+
+  .recorder-body { flex: 1; overflow-y: auto; padding: 20px; }
+
+  .section {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 20px;
+    margin-bottom: 20px;
+  }
+
+  .section-title {
+    font-size: 0.75rem;
+    font-weight: 700;
+    letter-spacing: 0.15em;
+    color: var(--text2);
+    text-transform: uppercase;
+    margin-bottom: 16px;
+  }
+
+  /* QR エリア */
+  .qr-area {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 16px;
+  }
+
+  #qrcode {
+    background: #fff;
+    padding: 16px;
+    border-radius: 12px;
+    display: inline-block;
+  }
+
+  .url-box {
+    width: 100%;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px 14px;
+    font-size: 0.75rem;
+    color: var(--text2);
+    word-break: break-all;
+    text-align: center;
+  }
+
+  /* 接続状況 */
+  .lanes-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
+    gap: 10px;
+  }
+
+  .lane-card {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 12px 8px;
+    text-align: center;
+    transition: all 0.3s;
+  }
+
+  .lane-card.connected {
+    border-color: var(--green);
+    box-shadow: 0 0 10px rgba(0,255,136,0.2);
+  }
+
+  .lane-num {
+    font-family: 'Rajdhani', sans-serif;
+    font-size: 1.4rem;
+    font-weight: 700;
+    color: var(--text2);
+  }
+
+  .lane-card.connected .lane-num { color: var(--green); }
+
+  .lane-status {
+    font-size: 0.65rem;
+    color: var(--text2);
+    margin-top: 4px;
+  }
+
+  .lane-card.connected .lane-status { color: var(--green); }
+
+  /* タイマー表示 */
+  .master-timer {
+    text-align: center;
+    padding: 10px 0;
+  }
+
+  .timer-display {
+    font-family: 'Rajdhani', sans-serif;
+    font-size: clamp(3rem, 15vw, 5rem);
+    font-weight: 700;
+    color: var(--timer);
+    text-shadow: 0 0 30px rgba(0,212,255,0.4);
+    letter-spacing: 0.05em;
+    line-height: 1;
+    transition: color 0.3s;
+  }
+
+  .timer-display.running { color: var(--green); text-shadow: 0 0 30px rgba(0,255,136,0.4); }
+
+  .control-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+    margin-top: 16px;
+  }
+
+  /* 記録テーブル */
+  .records-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 12px;
+  }
+
+  .records-table-wrap {
+    overflow-x: auto;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+  }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.8rem;
+    min-width: 400px;
+  }
+
+  thead th {
+    background: var(--surface2);
+    padding: 10px 12px;
+    text-align: left;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    color: var(--text2);
+    border-bottom: 1px solid var(--border);
+    white-space: nowrap;
+  }
+
+  tbody tr:hover { background: rgba(255,255,255,0.02); }
+
+  tbody td {
+    padding: 10px 12px;
+    border-bottom: 1px solid rgba(30,58,95,0.5);
+    white-space: nowrap;
+  }
+
+  .tag-lap {
+    background: rgba(0,212,255,0.15);
+    color: var(--accent);
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 0.7rem;
+    font-weight: 700;
+  }
+
+  .tag-stop {
+    background: rgba(0,255,136,0.15);
+    color: var(--green);
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 0.7rem;
+    font-weight: 700;
+  }
+
+  .empty-msg {
+    text-align: center;
+    color: var(--text2);
+    padding: 30px;
+    font-size: 0.85rem;
+  }
+
+  /* ── MEASURER ── */
+  #screen-measurer {
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+  }
+  #screen-measurer.active { display: flex; }
+
+  .measurer-body {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    padding: 20px;
+    gap: 16px;
+    overflow-y: auto;
+  }
+
+  /* レーン選択 */
+  .lane-select-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 10px;
+  }
+
+  .lane-btn {
+    aspect-ratio: 1;
+    background: var(--surface2);
+    border: 2px solid var(--border);
+    border-radius: 12px;
+    font-family: 'Rajdhani', sans-serif;
+    font-size: 1.5rem;
+    font-weight: 700;
+    color: var(--text2);
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+
+  .lane-btn:hover { border-color: var(--accent); color: var(--accent); }
+
+  .lane-btn.selected {
+    background: linear-gradient(135deg, var(--accent), var(--accent2));
+    border-color: var(--accent);
+    color: #000;
+    box-shadow: 0 0 20px rgba(0,212,255,0.4);
+  }
+
+  /* 計測タイマー */
+  .meas-timer-wrap {
+    text-align: center;
+    padding: 20px 0;
+  }
+
+  .lane-badge {
+    display: inline-block;
+    font-size: 0.75rem;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    color: var(--text2);
+    margin-bottom: 8px;
+    text-transform: uppercase;
+  }
+
+  .meas-timer {
+    font-family: 'Rajdhani', sans-serif;
+    font-size: clamp(4rem, 20vw, 7rem);
+    font-weight: 700;
+    color: var(--timer);
+    text-shadow: 0 0 40px rgba(0,212,255,0.5);
+    letter-spacing: 0.04em;
+    line-height: 1;
+    transition: color 0.3s;
+  }
+
+  .meas-timer.running { color: var(--green); text-shadow: 0 0 40px rgba(0,255,136,0.5); }
+  .meas-timer.stopped { color: var(--red); text-shadow: 0 0 40px rgba(255,51,102,0.4); }
+
+  .meas-controls {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 14px;
+  }
+
+  .meas-controls .btn-red { grid-column: 1 / 2; }
+  .btn-lap { grid-column: 2 / 3; }
+  .btn-clear-meas { grid-column: 1 / 3; }
+
+  /* ラップリスト */
+  .lap-list {
+    background: var(--surface2);
+    border-radius: 10px;
+    border: 1px solid var(--border);
+    overflow: hidden;
+  }
+
+  .lap-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 10px 14px;
+    border-bottom: 1px solid rgba(30,58,95,0.5);
+    font-size: 0.85rem;
+    animation: fadeIn 0.3s ease;
+  }
+
+  @keyframes fadeIn { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: translateY(0); } }
+
+  .lap-item:last-child { border-bottom: none; }
+
+  .lap-label { color: var(--text2); font-size: 0.75rem; }
+  .lap-time {
+    font-family: 'Rajdhani', sans-serif;
+    font-size: 1.1rem;
+    font-weight: 700;
+    color: var(--accent);
+  }
+  .lap-time.stop-time { color: var(--green); }
+
+  /* ── JOIN SCREEN ── */
+  #screen-join {
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 40px 20px;
+    text-align: center;
+  }
+  #screen-join.active { display: flex; }
+
+  .join-title {
+    font-family: 'Rajdhani', sans-serif;
+    font-size: 1.8rem;
+    font-weight: 700;
+    color: var(--accent);
+    margin-bottom: 8px;
+  }
+
+  .join-sub { color: var(--text2); font-size: 0.85rem; margin-bottom: 30px; }
+
+  #join-room-id {
+    width: 100%;
+    max-width: 320px;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 14px 16px;
+    font-size: 1rem;
+    color: var(--text);
+    margin-bottom: 14px;
+    text-align: center;
+    letter-spacing: 0.1em;
+  }
+
+  #join-room-id:focus { outline: none; border-color: var(--accent); }
+
+  /* 接続状態インジケーター */
+  .conn-status {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 0.8rem;
+    color: var(--text2);
+    margin-top: 8px;
+  }
+
+  .conn-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--text2);
+    transition: all 0.3s;
+  }
+
+  .conn-dot.connected { background: var(--green); box-shadow: 0 0 8px var(--green); animation: pulse 2s infinite; }
+  .conn-dot.connecting { background: var(--yellow); box-shadow: 0 0 8px var(--yellow); animation: pulse 0.8s infinite; }
+  .conn-dot.error { background: var(--red); box-shadow: 0 0 8px var(--red); }
+
+  @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.4; } }
+
+  .waiting-msg {
+    text-align: center;
+    color: var(--text2);
+    font-size: 0.85rem;
+    padding: 20px;
+    animation: pulse 2s infinite;
+  }
+
+  /* TOAST */
+  .toast {
+    position: fixed;
+    bottom: 30px;
+    left: 50%;
+    transform: translateX(-50%) translateY(80px);
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 12px 24px;
+    font-size: 0.85rem;
+    color: var(--text);
+    z-index: 9999;
+    transition: transform 0.3s, opacity 0.3s;
+    opacity: 0;
+    white-space: nowrap;
+  }
+
+  .toast.show { transform: translateX(-50%) translateY(0); opacity: 1; }
+
+  /* modal */
+  .modal-overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.7);
+    z-index: 500;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+  }
+  .modal-overlay.open { display: flex; }
+
+  .modal {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    padding: 28px 24px;
+    width: 100%;
+    max-width: 340px;
+    text-align: center;
+  }
+
+  .modal h3 { margin-bottom: 12px; color: var(--accent); font-family: 'Rajdhani', sans-serif; font-size: 1.4rem; }
+  .modal p { font-size: 0.85rem; color: var(--text2); margin-bottom: 20px; }
+
+  .modal-btns { display: flex; gap: 12px; }
+  .modal-btns .btn { flex: 1; }
+
+  /* Lanes count selector */
+  .lane-count-row {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+
+  .lane-count-btn {
+    width: 50px;
+    height: 50px;
+    border-radius: 10px;
+    background: var(--surface2);
+    border: 2px solid var(--border);
+    color: var(--text2);
+    font-family: 'Rajdhani', sans-serif;
+    font-size: 1.2rem;
+    font-weight: 700;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+
+  .lane-count-btn.selected {
+    border-color: var(--accent);
+    color: var(--accent);
+    background: rgba(0,212,255,0.1);
+  }
+
+  @media (max-width: 400px) {
+    .lane-select-grid { grid-template-columns: repeat(4, 1fr); }
+    .meas-controls { gap: 10px; }
+  }
+</style>
+</head>
+<body>
+
+<!-- ====== TOP SCREEN ====== -->
+<div id="screen-top" class="screen active">
+  <div class="logo">⏱ LANE TIMER</div>
+  <div class="logo-sub">マルチレーン計時システム</div>
+  <div class="btn-group">
+    <button class="btn btn-primary" onclick="showCreateRoom()">📋 記録者として開始</button>
+    <button class="btn btn-secondary" onclick="showJoin()">📷 計測者として参加</button>
+  </div>
+</div>
+
+<!-- ====== RECORDER SCREEN ====== -->
+<div id="screen-recorder" class="screen">
+  <div class="header">
+    <span class="header-title">⏱ RECORDER</span>
+    <span class="room-id-badge" id="rec-room-badge">ROOM: ---</span>
+  </div>
+
+  <div class="recorder-body">
+
+    <!-- QR -->
+    <div class="section">
+      <div class="section-title">📱 計測者用QRコード</div>
+      <div class="qr-area">
+        <div id="qrcode"></div>
+        <div class="url-box" id="qr-url-text">生成中...</div>
+        <button class="btn btn-secondary btn-sm" onclick="copyUrl()">URLをコピー</button>
+      </div>
+    </div>
+
+    <!-- 接続状況 -->
+    <div class="section">
+      <div class="section-title">🔗 接続状況</div>
+      <div id="lanes-grid" class="lanes-grid"></div>
+    </div>
+
+    <!-- タイマーコントロール -->
+    <div class="section">
+      <div class="section-title">⏱ マスタータイマー</div>
+      <div class="master-timer">
+        <div class="timer-display" id="master-timer-display">00:00.000</div>
+      </div>
+      <div class="control-row">
+        <button class="btn btn-green" id="rec-start-btn" onclick="recorderStart()">▶ スタート</button>
+        <button class="btn btn-red" onclick="recorderReset()">↺ リセット</button>
+      </div>
+    </div>
+
+    <!-- 記録一覧 -->
+    <div class="section">
+      <div class="records-header">
+        <div class="section-title" style="margin-bottom:0">📝 記録一覧</div>
+        <button class="btn btn-yellow btn-sm" onclick="exportExcel()">📥 Excel保存</button>
+      </div>
+      <div id="records-area">
+        <div class="empty-msg">記録はまだありません</div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- ====== JOIN SCREEN ====== -->
+<div id="screen-join" class="screen">
+  <div class="join-title">計測者として参加</div>
+  <div class="join-sub">ルームIDを入力して参加してください</div>
+  <input type="text" id="join-room-id" placeholder="ROOM ID" maxlength="8">
+  <button class="btn btn-primary" onclick="joinRoom()">参加する</button>
+  <div class="conn-status" id="join-conn-status" style="display:none">
+    <div class="conn-dot connecting" id="join-conn-dot"></div>
+    <span id="join-conn-text">接続中...</span>
+  </div>
+</div>
+
+<!-- ====== MEASURER SCREEN ====== -->
+<div id="screen-measurer" class="screen">
+  <div class="header">
+    <span class="header-title">🏃 MEASURER</span>
+    <div class="conn-status">
+      <div class="conn-dot" id="meas-conn-dot"></div>
+      <span id="meas-conn-text">接続中</span>
+    </div>
+  </div>
+  <div class="measurer-body">
+
+    <!-- レーン選択 -->
+    <div class="section" id="lane-select-section">
+      <div class="section-title">レーンを選択</div>
+      <div class="lane-select-grid" id="lane-select-grid"></div>
+    </div>
+
+    <!-- タイマー -->
+    <div class="section" id="meas-timer-section" style="display:none">
+      <div class="meas-timer-wrap">
+        <div class="lane-badge" id="meas-lane-badge">LANE 1</div>
+        <div class="meas-timer" id="meas-timer-display">00:00.000</div>
+      </div>
+      <div class="meas-controls">
+        <button class="btn btn-red" id="btn-stop" onclick="measStop()">■ ストップ</button>
+        <button class="btn btn-primary btn-lap" id="btn-lap" onclick="measLap()">◉ ラップ</button>
+        <button class="btn btn-secondary btn-clear-meas btn-sm" onclick="measClear()">↺ クリア</button>
+      </div>
+    </div>
+
+    <!-- ラップリスト -->
+    <div class="section" id="meas-laps-section" style="display:none">
+      <div class="section-title">記録</div>
+      <div class="lap-list" id="meas-lap-list"></div>
+    </div>
+
+    <div id="meas-waiting" class="waiting-msg">スタート待機中...</div>
+
+  </div>
+</div>
+
+<!-- MODAL: ルーム作成 -->
+<div class="modal-overlay" id="modal-create">
+  <div class="modal">
+    <h3>ルーム作成</h3>
+    <p>レーン数を選択してください</p>
+    <div class="lane-count-row" id="lane-count-row"></div>
+    <br>
+    <div class="modal-btns" style="margin-top:16px">
+      <button class="btn btn-secondary" onclick="closeModal('modal-create')">キャンセル</button>
+      <button class="btn btn-primary" onclick="createRoom()">作成する</button>
+    </div>
+  </div>
+</div>
+
+<!-- TOAST -->
+<div class="toast" id="toast"></div>
+
+<script>
+// ============================================================
+//  PeerJS CDN 動的ロード
+// ============================================================
+(function(){
+  const s = document.createElement('script');
+  s.src = 'https://cdnjs.cloudflare.com/ajax/libs/peerjs/1.5.4/peerjs.min.js';
+  s.onload = () => console.log('PeerJS loaded');
+  document.head.appendChild(s);
+})();
+
+// ============================================================
+//  STATE
+// ============================================================
+let peer = null;
+let conns = {};           // peerId -> DataConnection (recorder side)
+let recorderConn = null;  // measurer side
+let roomId = '';
+let laneCount = 4;
+let myLane = null;
+
+// Timer state
+let timerStart = null;
+let timerOffset = 0;
+let timerRunning = false;
+let timerRaf = null;
+
+// Records (recorder)
+let records = [];
+let lapCounters = {}; // laneNum -> lapCount
+
+// Measurer state
+let measLapTimes = [];
+let measStopped = false;
+
+// ============================================================
+//  UTILS
+// ============================================================
+function showScreen(id) {
+  document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+  document.getElementById(id).classList.add('active');
+}
+
+function toast(msg, duration=2500) {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.classList.add('show');
+  setTimeout(() => el.classList.remove('show'), duration);
+}
+
+function closeModal(id) {
+  document.getElementById(id).classList.remove('open');
+}
+
+function formatTime(ms) {
+  if (ms < 0) ms = 0;
+  const h = Math.floor(ms / 3600000);
+  const m = Math.floor((ms % 3600000) / 60000);
+  const s = Math.floor((ms % 60000) / 1000);
+  const cs = Math.floor((ms % 1000));
+  const mm = String(m).padStart(2,'0');
+  const ss = String(s).padStart(2,'0');
+  const mss = String(cs).padStart(3,'0');
+  if (h > 0) return `${h}:${mm}:${ss}.${mss}`;
+  return `${mm}:${ss}.${mss}`;
+}
+
+function genRoomId() {
+  return Math.random().toString(36).substr(2,6).toUpperCase();
+}
+
+// ============================================================
+//  TIMER (共通)
+// ============================================================
+function timerTick(displayEl) {
+  if (!timerRunning) return;
+  const now = performance.now();
+  const elapsed = timerOffset + (now - timerStart);
+  displayEl.textContent = formatTime(elapsed);
+  timerRaf = requestAnimationFrame(() => timerTick(displayEl));
+}
+
+// ============================================================
+//  TOP PAGE
+// ============================================================
+function showCreateRoom() {
+  // レーン数選択ボタン生成
+  const row = document.getElementById('lane-count-row');
+  row.innerHTML = '';
+  [2,3,4,5,6,8].forEach(n => {
+    const b = document.createElement('button');
+    b.className = 'lane-count-btn' + (n===4?' selected':'');
+    b.textContent = n;
+    b.onclick = () => {
+      row.querySelectorAll('.lane-count-btn').forEach(x=>x.classList.remove('selected'));
+      b.classList.add('selected');
+      laneCount = n;
+    };
+    row.appendChild(b);
+  });
+  laneCount = 4;
+  document.getElementById('modal-create').classList.add('open');
+}
+
+function showJoin() {
+  // URLパラメータにroomIdがあれば自動入力
+  const params = new URLSearchParams(location.search);
+  const rid = params.get('room');
+  if (rid) document.getElementById('join-room-id').value = rid;
+  showScreen('screen-join');
+}
+
+// ============================================================
+//  RECORDER — ルーム作成
+// ============================================================
+function createRoom() {
+  closeModal('modal-create');
+  roomId = genRoomId();
+  records = [];
+  lapCounters = {};
+  conns = {};
+
+  document.getElementById('rec-room-badge').textContent = 'ROOM: ' + roomId;
+  showScreen('screen-recorder');
+  renderLanesGrid();
+  renderRecords();
+
+  // QR生成 (少し遅延してDOMが整ってから)
+  setTimeout(() => initRecorderPeer(), 300);
+}
+
+function initRecorderPeer() {
+  if (peer) { try { peer.destroy(); } catch(e){} }
+
+  // PeerID = roomId にする (計測者側がこれに接続)
+  peer = new Peer('LTROOM-' + roomId, {
+    debug: 0
+  });
+
+  peer.on('open', id => {
+    console.log('Recorder peer open:', id);
+    generateQR();
+  });
+
+  peer.on('connection', conn => {
+    const lane = conn.metadata && conn.metadata.lane;
+    console.log('New connection from lane', lane);
+    if (!lane) return;
+    conns[lane] = conn;
+    updateLaneCard(lane, true);
+
+    conn.on('data', data => {
+      // PING応答（時刻補正用）
+      if (data.type === 'PING') {
+        conn.send({ type: 'PONG', t1: data.t1, t2: Date.now() });
+        return;
+      }
+      handleMeasurerData(lane, data);
+    });
+    conn.on('close', () => {
+      delete conns[lane];
+      updateLaneCard(lane, false);
+    });
+    conn.on('error', () => {
+      delete conns[lane];
+      updateLaneCard(lane, false);
+    });
+  });
+
+  peer.on('error', err => {
+    console.error('Peer error:', err);
+    // IDが被った場合はランダムIDで再試行
+    if (err.type === 'unavailable-id') {
+      roomId = genRoomId();
+      document.getElementById('rec-room-badge').textContent = 'ROOM: ' + roomId;
+      renderLanesGrid();
+      setTimeout(() => initRecorderPeer(), 500);
+    }
+  });
+}
+
+function generateQR() {
+  const url = location.origin + location.pathname + '?room=' + roomId;
+  document.getElementById('qr-url-text').textContent = url;
+
+  const qrEl = document.getElementById('qrcode');
+  qrEl.innerHTML = '';
+  try {
+    new QRCode(qrEl, {
+      text: url,
+      width: 180,
+      height: 180,
+      colorDark: '#000000',
+      colorLight: '#ffffff',
+      correctLevel: QRCode.CorrectLevel.M
+    });
+  } catch(e) {
+    qrEl.textContent = url;
+  }
+}
+
+function copyUrl() {
+  const url = document.getElementById('qr-url-text').textContent;
+  navigator.clipboard.writeText(url).then(() => toast('URLをコピーしました'));
+}
+
+function renderLanesGrid() {
+  const grid = document.getElementById('lanes-grid');
+  grid.innerHTML = '';
+  for (let i=1; i<=laneCount; i++) {
+    const card = document.createElement('div');
+    card.className = 'lane-card';
+    card.id = 'lane-card-' + i;
+    card.innerHTML = `<div class="lane-num">${i}</div><div class="lane-status">未接続</div>`;
+    grid.appendChild(card);
+  }
+}
+
+function updateLaneCard(lane, connected) {
+  const card = document.getElementById('lane-card-' + lane);
+  if (!card) return;
+  if (connected) {
+    card.classList.add('connected');
+    card.querySelector('.lane-status').textContent = '接続中';
+  } else {
+    card.classList.remove('connected');
+    card.querySelector('.lane-status').textContent = '未接続';
+  }
+}
+
+// ============================================================
+//  RECORDER — タイマー操作
+// ============================================================
+function recorderStart() {
+  if (timerRunning) return; // 連打防止
+
+  timerRunning = true;
+  timerStart = performance.now();
+  timerOffset = 0;
+
+  const disp = document.getElementById('master-timer-display');
+  disp.classList.add('running');
+
+  timerRaf = requestAnimationFrame(() => timerTick(disp));
+
+  // 全計測者にSTART送信 (現在のtimestamp基準)
+  const startAt = Date.now();
+  broadcast({ type: 'START', startAt });
+
+  document.getElementById('rec-start-btn').disabled = true;
+  document.getElementById('rec-start-btn').style.opacity = '0.4';
+}
+
+function recorderReset() {
+  timerRunning = false;
+  cancelAnimationFrame(timerRaf);
+  timerOffset = 0;
+  timerStart = null;
+
+  const disp = document.getElementById('master-timer-display');
+  disp.textContent = '00:00.000';
+  disp.classList.remove('running');
+
+  broadcast({ type: 'RESET' });
+
+  records = [];
+  lapCounters = {};
+  renderRecords();
+
+  const btn = document.getElementById('rec-start-btn');
+  btn.disabled = false;
+  btn.style.opacity = '1';
+}
+
+function broadcast(data) {
+  Object.values(conns).forEach(c => {
+    try { if (c.open) c.send(data); } catch(e){}
+  });
+}
+
+// ============================================================
+//  RECORDER — 計測データ受信
+// ============================================================
+function handleMeasurerData(lane, data) {
+  if (data.type === 'LAP' || data.type === 'STOP') {
+    if (!lapCounters[lane]) lapCounters[lane] = 0;
+    lapCounters[lane]++;
+
+    records.push({
+      lane: lane,
+      type: data.type,
+      lap: lapCounters[lane],
+      time: data.time,
+      elapsed: data.elapsed,
+      timestamp: new Date().toLocaleTimeString('ja-JP')
+    });
+    renderRecords();
+  }
+}
+
+function renderRecords() {
+  const area = document.getElementById('records-area');
+  if (records.length === 0) {
+    area.innerHTML = '<div class="empty-msg">記録はまだありません</div>';
+    return;
+  }
+
+  // レーンごとにソート・整理
+  const sorted = [...records].sort((a,b) => {
+    if (a.lane !== b.lane) return a.lane - b.lane;
+    return a.lap - b.lap;
+  });
+
+  let html = `<div class="records-table-wrap"><table>
+    <thead><tr>
+      <th>レーン</th><th>種別</th><th>回数</th><th>経過時間</th><th>記録時刻</th>
+    </tr></thead><tbody>`;
+
+  sorted.forEach(r => {
+    const tag = r.type === 'LAP'
+      ? `<span class="tag-lap">LAP</span>`
+      : `<span class="tag-stop">STOP</span>`;
+    html += `<tr>
+      <td>Lane ${r.lane}</td>
+      <td>${tag}</td>
+      <td>${r.type === 'LAP' ? r.lap : '-'}</td>
+      <td><b>${r.elapsed}</b></td>
+      <td>${r.timestamp}</td>
+    </tr>`;
+  });
+
+  html += '</tbody></table></div>';
+  area.innerHTML = html;
+}
+
+// ============================================================
+//  RECORDER — Excel出力
+// ============================================================
+function exportExcel() {
+  if (records.length === 0) { toast('記録がありません'); return; }
+
+  const data = [['レーン','種別','ラップ回数','経過時間','記録時刻']];
+  const sorted = [...records].sort((a,b) => {
+    if (a.lane !== b.lane) return a.lane - b.lane;
+    return a.lap - b.lap;
+  });
+  sorted.forEach(r => {
+    data.push([`Lane ${r.lane}`, r.type, r.type==='LAP'?r.lap:'-', r.elapsed, r.timestamp]);
+  });
+
+  const ws = XLSX.utils.aoa_to_sheet(data);
+  ws['!cols'] = [{wch:10},{wch:8},{wch:10},{wch:14},{wch:12}];
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, '記録');
+
+  const now = new Date();
+  const fname = `記録_${now.getFullYear()}${String(now.getMonth()+1).padStart(2,'0')}${String(now.getDate()).padStart(2,'0')}_${String(now.getHours()).padStart(2,'0')}${String(now.getMinutes()).padStart(2,'0')}.xlsx`;
+  XLSX.writeFile(wb, fname);
+  toast('Excelファイルを保存しました');
+}
+
+// ============================================================
+//  JOIN — ルーム参加
+// ============================================================
+function joinRoom() {
+  const rid = document.getElementById('join-room-id').value.trim().toUpperCase();
+  if (!rid) { toast('ルームIDを入力してください'); return; }
+
+  roomId = rid;
+  laneCount = 8; // 後でサーバーから受け取る想定、とりあえず8まで表示
+
+  showScreen('screen-measurer');
+  renderLaneSelect();
+  setMeasConnStatus('connecting', '接続中...');
+  document.getElementById('meas-waiting').textContent = 'レーンを選択してください';
+
+  // まずPeerを作成
+  initMeasurerPeer();
+}
+
+function initMeasurerPeer() {
+  if (peer) { try { peer.destroy(); } catch(e){} }
+  peer = new Peer({ debug: 0 });
+
+  peer.on('open', () => {
+    setMeasConnStatus('connected', 'Peer準備完了');
+  });
+  peer.on('error', err => {
+    setMeasConnStatus('error', 'エラー: ' + err.type);
+    console.error(err);
+  });
+}
+
+function renderLaneSelect() {
+  const grid = document.getElementById('lane-select-grid');
+  grid.innerHTML = '';
+  for (let i=1; i<=8; i++) {
+    const b = document.createElement('button');
+    b.className = 'lane-btn';
+    b.textContent = i;
+    b.onclick = () => selectLane(i);
+    grid.appendChild(b);
+  }
+}
+
+function selectLane(lane) {
+  myLane = lane;
+  document.querySelectorAll('.lane-btn').forEach(b => b.classList.remove('selected'));
+  document.querySelectorAll('.lane-btn')[lane-1].classList.add('selected');
+
+  setMeasConnStatus('connecting', 'ルームに接続中...');
+  connectToRecorder();
+}
+
+function connectToRecorder() {
+  if (!peer || !peer.id) {
+    setTimeout(connectToRecorder, 300);
+    return;
+  }
+
+  if (recorderConn) { try { recorderConn.close(); } catch(e){} }
+
+  recorderConn = peer.connect('LTROOM-' + roomId, {
+    metadata: { lane: myLane },
+    reliable: true
+  });
+
+  recorderConn.on('open', () => {
+    setMeasConnStatus('connecting', '時刻を同期中...');
+    document.getElementById('meas-lane-badge').textContent = 'LANE ' + myLane;
+    document.getElementById('meas-waiting').textContent = 'スタート待機中...';
+    toast('Lane ' + myLane + ' で接続しました');
+    // 接続直後にクロック同期開始
+    setTimeout(startClockSync, 100);
+  });
+
+  recorderConn.on('data', data => handleRecorderData(data));
+
+  recorderConn.on('close', () => {
+    setMeasConnStatus('error', '切断されました');
+  });
+
+  recorderConn.on('error', err => {
+    setMeasConnStatus('error', '接続エラー');
+    console.error(err);
+  });
+}
+
+function setMeasConnStatus(state, text) {
+  const dot = document.getElementById('meas-conn-dot');
+  const txt = document.getElementById('meas-conn-text');
+  dot.className = 'conn-dot ' + state;
+  txt.textContent = text;
+}
+
+// ============================================================
+//  MEASURER — 時刻補正 (Ping/Pong NTP方式)
+// ============================================================
+let clockOffset = 0;      // 記録者との時刻差(ms)。補正後: Date.now() + clockOffset ≒ 記録者のDate.now()
+let pingCount = 0;
+const PING_TIMES = 5;     // 5回測定して中央値を使う
+let pingResults = [];
+
+let syncTimeout = null;
+
+function startClockSync() {
+  pingResults = [];
+  pingCount = 0;
+  // 3秒以内にPONGが返らなければ補正なしで接続済みにする
+  if (syncTimeout) clearTimeout(syncTimeout);
+  syncTimeout = setTimeout(() => {
+    if (pingResults.length === 0) {
+      clockOffset = 0;
+      setMeasConnStatus('connected', `Lane ${myLane} 接続済み (補正なし)`);
+      toast('時刻同期がタイムアウトしました。補正なしで動作します。');
+    }
+  }, 3000);
+  sendPing();
+}
+
+function sendPing() {
+  if (!recorderConn || !recorderConn.open) return;
+  recorderConn.send({ type: 'PING', t1: Date.now() });
+}
+
+function handlePong(data) {
+  // data: { type:'PONG', t1, t2 }
+  // t1=計測者送信時刻, t2=記録者受信・返信時刻, t3=計測者受信時刻
+  const t3 = Date.now();
+  const rtt = t3 - data.t1;          // 往復時間
+  const offset = data.t2 - data.t1 - rtt / 2; // 時刻差の推定
+  pingResults.push(offset);
+
+  pingCount++;
+  if (pingCount < PING_TIMES) {
+    setTimeout(sendPing, 60);
+  } else {
+    if (syncTimeout) clearTimeout(syncTimeout);
+    // 中央値を採用（外れ値を除去）
+    pingResults.sort((a, b) => a - b);
+    clockOffset = pingResults[Math.floor(PING_TIMES / 2)];
+    console.log('Clock offset:', clockOffset, 'ms  (samples:', pingResults, ')');
+    setMeasConnStatus('connected', `Lane ${myLane} 同期完了 (補正:${clockOffset > 0 ? '+' : ''}${Math.round(clockOffset)}ms)`);
+  }
+}
+
+// 補正済み「今の時刻」
+function now() {
+  return Date.now() + clockOffset;
+}
+
+// ============================================================
+//  MEASURER — 受信ハンドラ
+// ============================================================
+let measStartAt = null; // 記録者基準のスタート時刻
+
+function handleRecorderData(data) {
+  if (data.type === 'PONG') {
+    handlePong(data);
+    return;
+  }
+
+  if (data.type === 'START') {
+    measStartAt = data.startAt;  // 記録者のDate.now()基準
+    measLapTimes = [];
+    measStopped = false;
+
+    document.getElementById('meas-waiting').style.display = 'none';
+    document.getElementById('meas-timer-section').style.display = 'block';
+    document.getElementById('btn-stop').disabled = false;
+    document.getElementById('btn-lap').disabled = false;
+
+    const disp = document.getElementById('meas-timer-display');
+    disp.classList.remove('stopped');
+    disp.classList.add('running');
+    disp.textContent = '00:00.000';
+
+    renderMeasLaps();
+    startMeasTimer();
+  }
+
+  if (data.type === 'RESET') {
+    measReset();
+  }
+}
+
+function startMeasTimer() {
+  timerRunning = true;
+
+  const disp = document.getElementById('meas-timer-display');
+  function tick() {
+    if (!timerRunning) return;
+    // clockOffsetで補正した時刻でスタートからの経過を計算
+    const elapsed = now() - measStartAt;
+    disp.textContent = formatTime(elapsed < 0 ? 0 : elapsed);
+    requestAnimationFrame(tick);
+  }
+  requestAnimationFrame(tick);
+}
+
+// ============================================================
+//  MEASURER — 操作
+// ============================================================
+function measLap() {
+  if (!timerRunning || measStopped) return;
+  const elapsed = now() - measStartAt;
+  const lapNum = measLapTimes.length + 1;
+
+  measLapTimes.push({ type:'LAP', num: lapNum, elapsed });
+  renderMeasLaps();
+
+  // 送信
+  if (recorderConn && recorderConn.open) {
+    recorderConn.send({ type:'LAP', lap: lapNum, elapsed: formatTime(elapsed), time: elapsed });
+  }
+
+  document.getElementById('meas-laps-section').style.display = 'block';
+}
+
+function measStop() {
+  if (!timerRunning || measStopped) return;
+  measStopped = true;
+  timerRunning = false;
+  const elapsed = now() - measStartAt;
+
+  const disp = document.getElementById('meas-timer-display');
+  disp.classList.remove('running');
+  disp.classList.add('stopped');
+  disp.textContent = formatTime(elapsed);
+
+  document.getElementById('btn-stop').disabled = true;
+  document.getElementById('btn-lap').disabled = true;
+
+  measLapTimes.push({ type:'STOP', elapsed });
+  renderMeasLaps();
+  document.getElementById('meas-laps-section').style.display = 'block';
+
+  if (recorderConn && recorderConn.open) {
+    recorderConn.send({ type:'STOP', elapsed: formatTime(elapsed), time: elapsed });
+  }
+}
+
+function measClear() {
+  timerRunning = false;
+  measLapTimes = [];
+  measStopped = false;
+  measStartAt = null;
+
+  const disp = document.getElementById('meas-timer-display');
+  disp.textContent = '00:00.000';
+  disp.classList.remove('running','stopped');
+
+  document.getElementById('meas-timer-section').style.display = 'none';
+  document.getElementById('meas-laps-section').style.display = 'none';
+  document.getElementById('meas-waiting').style.display = 'block';
+  document.getElementById('meas-waiting').textContent = 'スタート待機中...';
+}
+
+function measReset() {
+  measClear();
+}
+
+function renderMeasLaps() {
+  const list = document.getElementById('meas-lap-list');
+  if (measLapTimes.length === 0) { list.innerHTML = ''; return; }
+
+  list.innerHTML = measLapTimes.map((r,i) => {
+    const isStop = r.type === 'STOP';
+    return `<div class="lap-item">
+      <span class="lap-label">${isStop ? 'STOP' : 'LAP ' + r.num}</span>
+      <span class="lap-time ${isStop?'stop-time':''}">${formatTime(r.elapsed)}</span>
+    </div>`;
+  }).join('');
+
+  document.getElementById('meas-laps-section').style.display = 'block';
+}
+
+// ============================================================
+//  URL パラメータによる自動遷移
+// ============================================================
+window.addEventListener('load', () => {
+  const params = new URLSearchParams(location.search);
+  const rid = params.get('room');
+  if (rid) {
+    document.getElementById('join-room-id').value = rid;
+    showScreen('screen-join');
+  }
+});
+</script>
+</body>
+</html>
